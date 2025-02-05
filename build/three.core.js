@@ -1,9 +1,9 @@
 /**
  * @license
- * Copyright 2010-2024 Three.js Authors
+ * Copyright 2010-2025 Three.js Authors
  * SPDX-License-Identifier: MIT
  */
-const REVISION = '171';
+const REVISION = '173';
 
 const MOUSE = { LEFT: 0, MIDDLE: 1, RIGHT: 2, ROTATE: 0, DOLLY: 1, PAN: 2 };
 const TOUCH = { ROTATE: 0, PAN: 1, DOLLY_PAN: 2, DOLLY_ROTATE: 3 };
@@ -215,6 +215,11 @@ const GLSL3 = '300 es';
 const WebGLCoordinateSystem = 2000;
 const WebGPUCoordinateSystem = 2001;
 
+const TimestampQuery = {
+	COMPUTE: 'compute',
+	RENDER: 'render'
+};
+
 /**
  * https://github.com/mrdoob/eventdispatcher.js/
  */
@@ -243,9 +248,9 @@ class EventDispatcher {
 
 	hasEventListener( type, listener ) {
 
-		if ( this._listeners === undefined ) return false;
-
 		const listeners = this._listeners;
+
+		if ( listeners === undefined ) return false;
 
 		return listeners[ type ] !== undefined && listeners[ type ].indexOf( listener ) !== - 1;
 
@@ -253,9 +258,10 @@ class EventDispatcher {
 
 	removeEventListener( type, listener ) {
 
-		if ( this._listeners === undefined ) return;
-
 		const listeners = this._listeners;
+
+		if ( listeners === undefined ) return;
+
 		const listenerArray = listeners[ type ];
 
 		if ( listenerArray !== undefined ) {
@@ -274,9 +280,10 @@ class EventDispatcher {
 
 	dispatchEvent( event ) {
 
-		if ( this._listeners === undefined ) return;
-
 		const listeners = this._listeners;
+
+		if ( listeners === undefined ) return;
+
 		const listenerArray = listeners[ event.type ];
 
 		if ( listenerArray !== undefined ) {
@@ -1854,17 +1861,7 @@ class ImageUtils {
 
 		}
 
-		if ( canvas.width > 2048 || canvas.height > 2048 ) {
-
-			console.warn( 'THREE.ImageUtils.getDataURL: Image converted to jpg for performance reasons', image );
-
-			return canvas.toDataURL( 'image/jpeg', 0.6 );
-
-		} else {
-
-			return canvas.toDataURL( 'image/png' );
-
-		}
+		return canvas.toDataURL( 'image/png' );
 
 	}
 
@@ -2110,6 +2107,7 @@ class Texture extends EventDispatcher {
 		this.version = 0;
 		this.onUpdate = null;
 
+		this.renderTarget = null; // assign texture to a render target
 		this.isRenderTargetTexture = false; // indicates whether a texture belongs to a render target or not
 		this.pmremVersion = 0; // indicates whether this texture should be processed by PMREMGenerator or not (only relevant for render target textures)
 
@@ -2174,6 +2172,9 @@ class Texture extends EventDispatcher {
 		this.flipY = source.flipY;
 		this.unpackAlignment = source.unpackAlignment;
 		this.colorSpace = source.colorSpace;
+
+		this.renderTarget = source.renderTarget;
+		this.isRenderTargetTexture = source.isRenderTargetTexture;
 
 		this.userData = JSON.parse( JSON.stringify( source.userData ) );
 
@@ -3075,6 +3076,7 @@ class RenderTarget extends EventDispatcher {
 
 			this.textures[ i ] = texture.clone();
 			this.textures[ i ].isRenderTargetTexture = true;
+			this.textures[ i ].renderTarget = this;
 
 		}
 
@@ -3084,6 +3086,7 @@ class RenderTarget extends EventDispatcher {
 		this.resolveDepthBuffer = options.resolveDepthBuffer;
 		this.resolveStencilBuffer = options.resolveStencilBuffer;
 
+		this._depthTexture = null;
 		this.depthTexture = options.depthTexture;
 
 		this.samples = options.samples;
@@ -3099,6 +3102,21 @@ class RenderTarget extends EventDispatcher {
 	set texture( value ) {
 
 		this.textures[ 0 ] = value;
+
+	}
+
+	set depthTexture( current ) {
+
+		if ( this._depthTexture !== null ) this._depthTexture.renderTarget = null;
+		if ( current !== null ) current.renderTarget = this;
+
+		this._depthTexture = current;
+
+	}
+
+	get depthTexture() {
+
+		return this._depthTexture;
 
 	}
 
@@ -3150,6 +3168,7 @@ class RenderTarget extends EventDispatcher {
 
 			this.textures[ i ] = source.textures[ i ].clone();
 			this.textures[ i ].isRenderTargetTexture = true;
+			this.textures[ i ].renderTarget = this;
 
 		}
 
@@ -3252,9 +3271,9 @@ class Data3DTexture extends Texture {
 	constructor( data = null, width = 1, height = 1, depth = 1 ) {
 
 		// We're going to add .setXXX() methods for setting properties later.
-		// Users can still set in DataTexture3D directly.
+		// Users can still set in Data3DTexture directly.
 		//
-		//	const texture = new THREE.DataTexture3D( data, width, height, depth );
+		//	const texture = new THREE.Data3DTexture( data, width, height, depth );
 		// 	texture.anisotropy = 16;
 		//
 		// See #14839
@@ -9978,6 +9997,8 @@ const DataUtils = {
 const _vector$9 = /*@__PURE__*/ new Vector3();
 const _vector2$1 = /*@__PURE__*/ new Vector2();
 
+let _id$2 = 0;
+
 class BufferAttribute {
 
 	constructor( array, itemSize, normalized = false ) {
@@ -9989,6 +10010,8 @@ class BufferAttribute {
 		}
 
 		this.isBufferAttribute = true;
+
+		Object.defineProperty( this, 'id', { value: _id$2 ++ } );
 
 		this.name = '';
 
@@ -12675,7 +12698,7 @@ class PerspectiveCamera extends Camera {
 	 * The default film gauge is 35, so that the focal length can be specified for
 	 * a 35mm (full frame) camera.
 	 *
-	 * Values for focal length and film gauge must have the same unit.
+	 * @param {number} focalLength - Values for focal length and film gauge must have the same unit.
 	 */
 	setFocalLength( focalLength ) {
 
@@ -12689,6 +12712,8 @@ class PerspectiveCamera extends Camera {
 
 	/**
 	 * Calculates the focal length from the current .fov and .filmGauge.
+	 *
+	 * @returns {number}
 	 */
 	getFocalLength() {
 
@@ -12722,6 +12747,10 @@ class PerspectiveCamera extends Camera {
 	/**
 	 * Computes the 2D bounds of the camera's viewable rectangle at a given distance along the viewing direction.
 	 * Sets minTarget and maxTarget to the coordinates of the lower-left and upper-right corners of the view rectangle.
+	 *
+	 * @param {number} distance
+	 * @param {Vector2} minTarget
+	 * @param {Vector2} maxTarget
 	 */
 	getViewBounds( distance, minTarget, maxTarget ) {
 
@@ -12737,7 +12766,10 @@ class PerspectiveCamera extends Camera {
 
 	/**
 	 * Computes the width and height of the camera's viewable rectangle at a given distance along the viewing direction.
-	 * Copies the result into the target Vector2, where x is width and y is height.
+	 *
+	 * @param {number} distance
+	 * @param {Vector2} target - Vector2 target used to store result where x is width and y is height.
+	 * @returns {Vector2}
 	 */
 	getViewSize( distance, target ) {
 
@@ -12781,6 +12813,13 @@ class PerspectiveCamera extends Camera {
 	 *   camera.setViewOffset( fullWidth, fullHeight, w * 2, h * 1, w, h );
 	 *
 	 *   Note there is no reason monitors have to be the same size or in a grid.
+	 *
+	 * @param {number} fullWidth
+	 * @param {number} fullHeight
+	 * @param {number} x
+	 * @param {number} y
+	 * @param {number} width
+	 * @param {number} height
 	 */
 	setViewOffset( fullWidth, fullHeight, x, y, width, height ) {
 
@@ -13206,6 +13245,358 @@ class WebGLCubeRenderTarget extends WebGLRenderTarget {
 		}
 
 		renderer.setRenderTarget( currentRenderTarget );
+
+	}
+
+}
+
+class Group extends Object3D {
+
+	constructor() {
+
+		super();
+
+		this.isGroup = true;
+
+		this.type = 'Group';
+
+	}
+
+}
+
+const _moveEvent = { type: 'move' };
+
+class WebXRController {
+
+	constructor() {
+
+		this._targetRay = null;
+		this._grip = null;
+		this._hand = null;
+
+	}
+
+	getHandSpace() {
+
+		if ( this._hand === null ) {
+
+			this._hand = new Group();
+			this._hand.matrixAutoUpdate = false;
+			this._hand.visible = false;
+
+			this._hand.joints = {};
+			this._hand.inputState = { pinching: false };
+
+		}
+
+		return this._hand;
+
+	}
+
+	getTargetRaySpace() {
+
+		if ( this._targetRay === null ) {
+
+			this._targetRay = new Group();
+			this._targetRay.matrixAutoUpdate = false;
+			this._targetRay.visible = false;
+			this._targetRay.hasLinearVelocity = false;
+			this._targetRay.linearVelocity = new Vector3();
+			this._targetRay.hasAngularVelocity = false;
+			this._targetRay.angularVelocity = new Vector3();
+
+		}
+
+		return this._targetRay;
+
+	}
+
+	getGripSpace() {
+
+		if ( this._grip === null ) {
+
+			this._grip = new Group();
+			this._grip.matrixAutoUpdate = false;
+			this._grip.visible = false;
+			this._grip.hasLinearVelocity = false;
+			this._grip.linearVelocity = new Vector3();
+			this._grip.hasAngularVelocity = false;
+			this._grip.angularVelocity = new Vector3();
+
+		}
+
+		return this._grip;
+
+	}
+
+	dispatchEvent( event ) {
+
+		if ( this._targetRay !== null ) {
+
+			this._targetRay.dispatchEvent( event );
+
+		}
+
+		if ( this._grip !== null ) {
+
+			this._grip.dispatchEvent( event );
+
+		}
+
+		if ( this._hand !== null ) {
+
+			this._hand.dispatchEvent( event );
+
+		}
+
+		return this;
+
+	}
+
+	connect( inputSource ) {
+
+		if ( inputSource && inputSource.hand ) {
+
+			const hand = this._hand;
+
+			if ( hand ) {
+
+				for ( const inputjoint of inputSource.hand.values() ) {
+
+					// Initialize hand with joints when connected
+					this._getHandJoint( hand, inputjoint );
+
+				}
+
+			}
+
+		}
+
+		this.dispatchEvent( { type: 'connected', data: inputSource } );
+
+		return this;
+
+	}
+
+	disconnect( inputSource ) {
+
+		this.dispatchEvent( { type: 'disconnected', data: inputSource } );
+
+		if ( this._targetRay !== null ) {
+
+			this._targetRay.visible = false;
+
+		}
+
+		if ( this._grip !== null ) {
+
+			this._grip.visible = false;
+
+		}
+
+		if ( this._hand !== null ) {
+
+			this._hand.visible = false;
+
+		}
+
+		return this;
+
+	}
+
+	update( inputSource, frame, referenceSpace ) {
+
+		let inputPose = null;
+		let gripPose = null;
+		let handPose = null;
+
+		const targetRay = this._targetRay;
+		const grip = this._grip;
+		const hand = this._hand;
+
+		if ( inputSource && frame.session.visibilityState !== 'visible-blurred' ) {
+
+			if ( hand && inputSource.hand ) {
+
+				handPose = true;
+
+				for ( const inputjoint of inputSource.hand.values() ) {
+
+					// Update the joints groups with the XRJoint poses
+					const jointPose = frame.getJointPose( inputjoint, referenceSpace );
+
+					// The transform of this joint will be updated with the joint pose on each frame
+					const joint = this._getHandJoint( hand, inputjoint );
+
+					if ( jointPose !== null ) {
+
+						joint.matrix.fromArray( jointPose.transform.matrix );
+						joint.matrix.decompose( joint.position, joint.rotation, joint.scale );
+						joint.matrixWorldNeedsUpdate = true;
+						joint.jointRadius = jointPose.radius;
+
+					}
+
+					joint.visible = jointPose !== null;
+
+				}
+
+				// Custom events
+
+				// Check pinchz
+				const indexTip = hand.joints[ 'index-finger-tip' ];
+				const thumbTip = hand.joints[ 'thumb-tip' ];
+				const distance = indexTip.position.distanceTo( thumbTip.position );
+
+				const distanceToPinch = 0.02;
+				const threshold = 0.005;
+
+				if ( hand.inputState.pinching && distance > distanceToPinch + threshold ) {
+
+					hand.inputState.pinching = false;
+					this.dispatchEvent( {
+						type: 'pinchend',
+						handedness: inputSource.handedness,
+						target: this
+					} );
+
+				} else if ( ! hand.inputState.pinching && distance <= distanceToPinch - threshold ) {
+
+					hand.inputState.pinching = true;
+					this.dispatchEvent( {
+						type: 'pinchstart',
+						handedness: inputSource.handedness,
+						target: this
+					} );
+
+				}
+
+			} else {
+
+				if ( grip !== null && inputSource.gripSpace ) {
+
+					gripPose = frame.getPose( inputSource.gripSpace, referenceSpace );
+
+					if ( gripPose !== null ) {
+
+						grip.matrix.fromArray( gripPose.transform.matrix );
+						grip.matrix.decompose( grip.position, grip.rotation, grip.scale );
+						grip.matrixWorldNeedsUpdate = true;
+
+						if ( gripPose.linearVelocity ) {
+
+							grip.hasLinearVelocity = true;
+							grip.linearVelocity.copy( gripPose.linearVelocity );
+
+						} else {
+
+							grip.hasLinearVelocity = false;
+
+						}
+
+						if ( gripPose.angularVelocity ) {
+
+							grip.hasAngularVelocity = true;
+							grip.angularVelocity.copy( gripPose.angularVelocity );
+
+						} else {
+
+							grip.hasAngularVelocity = false;
+
+						}
+
+					}
+
+				}
+
+			}
+
+			if ( targetRay !== null ) {
+
+				inputPose = frame.getPose( inputSource.targetRaySpace, referenceSpace );
+
+				// Some runtimes (namely Vive Cosmos with Vive OpenXR Runtime) have only grip space and ray space is equal to it
+				if ( inputPose === null && gripPose !== null ) {
+
+					inputPose = gripPose;
+
+				}
+
+				if ( inputPose !== null ) {
+
+					targetRay.matrix.fromArray( inputPose.transform.matrix );
+					targetRay.matrix.decompose( targetRay.position, targetRay.rotation, targetRay.scale );
+					targetRay.matrixWorldNeedsUpdate = true;
+
+					if ( inputPose.linearVelocity ) {
+
+						targetRay.hasLinearVelocity = true;
+						targetRay.linearVelocity.copy( inputPose.linearVelocity );
+
+					} else {
+
+						targetRay.hasLinearVelocity = false;
+
+					}
+
+					if ( inputPose.angularVelocity ) {
+
+						targetRay.hasAngularVelocity = true;
+						targetRay.angularVelocity.copy( inputPose.angularVelocity );
+
+					} else {
+
+						targetRay.hasAngularVelocity = false;
+
+					}
+
+					this.dispatchEvent( _moveEvent );
+
+				}
+
+			}
+
+
+		}
+
+		if ( targetRay !== null ) {
+
+			targetRay.visible = ( inputPose !== null );
+
+		}
+
+		if ( grip !== null ) {
+
+			grip.visible = ( gripPose !== null );
+
+		}
+
+		if ( hand !== null ) {
+
+			hand.visible = ( handPose !== null );
+
+		}
+
+		return this;
+
+	}
+
+	// private method
+
+	_getHandJoint( hand, inputjoint ) {
+
+		if ( hand.joints[ inputjoint.jointName ] === undefined ) {
+
+			const joint = new Group();
+			joint.matrixAutoUpdate = false;
+			joint.visible = false;
+			hand.joints[ inputjoint.jointName ] = joint;
+
+			hand.add( joint );
+
+		}
+
+		return hand.joints[ inputjoint.jointName ];
 
 	}
 
@@ -16174,7 +16565,7 @@ class BatchedMesh extends Mesh {
 		const instanceInfo = this._instanceInfo;
 		for ( let i = 0, l = instanceInfo.length; i < l; i ++ ) {
 
-			if ( instanceInfo[ i ].geometryIndex === geometryId ) {
+			if ( instanceInfo[ i ].active && instanceInfo[ i ].geometryIndex === geometryId ) {
 
 				this.deleteInstance( i );
 
@@ -17025,7 +17416,7 @@ class Line extends Object3D {
 				const a = index.getX( i );
 				const b = index.getX( i + 1 );
 
-				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, a, b );
+				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, a, b, i );
 
 				if ( intersect ) {
 
@@ -17040,7 +17431,7 @@ class Line extends Object3D {
 				const a = index.getX( end - 1 );
 				const b = index.getX( start );
 
-				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, a, b );
+				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, a, b, end - 1 );
 
 				if ( intersect ) {
 
@@ -17057,7 +17448,7 @@ class Line extends Object3D {
 
 			for ( let i = start, l = end - 1; i < l; i += step ) {
 
-				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, i, i + 1 );
+				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, i, i + 1, i );
 
 				if ( intersect ) {
 
@@ -17069,7 +17460,7 @@ class Line extends Object3D {
 
 			if ( this.isLineLoop ) {
 
-				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, end - 1, start );
+				const intersect = checkIntersection( this, raycaster, _ray$1, localThresholdSq, end - 1, start, end - 1 );
 
 				if ( intersect ) {
 
@@ -17116,7 +17507,7 @@ class Line extends Object3D {
 
 }
 
-function checkIntersection( object, raycaster, ray, thresholdSq, a, b ) {
+function checkIntersection( object, raycaster, ray, thresholdSq, a, b, i ) {
 
 	const positionAttribute = object.geometry.attributes.position;
 
@@ -17139,7 +17530,7 @@ function checkIntersection( object, raycaster, ray, thresholdSq, a, b ) {
 		// What do we want? intersection point on the ray or on the segment??
 		// point: raycaster.ray.at( distance ),
 		point: _intersectPointOnSegment.clone().applyMatrix4( object.matrixWorld ),
-		index: a,
+		index: i,
 		face: null,
 		faceIndex: null,
 		barycoord: null,
@@ -17418,20 +17809,6 @@ function testPoint( point, index, localThresholdSq, matrixWorld, raycaster, inte
 
 }
 
-class Group extends Object3D {
-
-	constructor() {
-
-		super();
-
-		this.isGroup = true;
-
-		this.type = 'Group';
-
-	}
-
-}
-
 class VideoTexture extends Texture {
 
 	constructor( video, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy ) {
@@ -17478,6 +17855,38 @@ class VideoTexture extends Texture {
 			this.needsUpdate = true;
 
 		}
+
+	}
+
+}
+
+class VideoFrameTexture extends VideoTexture {
+
+	constructor( mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy ) {
+
+		super( {}, mapping, wrapS, wrapT, magFilter, minFilter, format, type, anisotropy );
+
+		this.isVideoFrameTexture = true;
+
+	}
+
+	update() {
+
+		// overwrites `VideoTexture.update()` with an empty method since
+		// this type of texture is updated via `setFrame()`.
+
+	}
+
+	clone() {
+
+		return new this.constructor().copy( this ); // restoring Texture.clone()
+
+	}
+
+	setFrame( frame ) {
+
+		this.image = frame;
+		this.needsUpdate = true;
 
 	}
 
@@ -21372,7 +21781,7 @@ function pointInTriangle( ax, ay, bx, by, cx, cy, px, py ) {
 // check if a diagonal between two polygon nodes is valid (lies in polygon interior)
 function isValidDiagonal( a, b ) {
 
-	return a.next.i !== b.i && a.prev.i !== b.i && ! intersectsPolygon( a, b ) && // dones't intersect other edges
+	return a.next.i !== b.i && a.prev.i !== b.i && ! intersectsPolygon( a, b ) && // doesn't intersect other edges
            ( locallyInside( a, b ) && locallyInside( b, a ) && middleInside( a, b ) && // locally visible
             ( area( a.prev, a, b.prev ) || area( a, b.prev, b ) ) || // does not create opposite-facing sectors
             equals( a, b ) && area( a.prev, a, a.next ) > 0 && area( b.prev, b, b.next ) > 0 ); // special zero-length case
@@ -30649,6 +31058,7 @@ class ArrayCamera extends PerspectiveCamera {
 		this.isArrayCamera = true;
 
 		this.cameras = array;
+		this.index = 0;
 
 	}
 
@@ -32357,11 +32767,11 @@ class PropertyBinding {
 
 		this.targetObject = targetObject;
 
-		if ( targetObject.needsUpdate !== undefined ) { // material
+		if ( targetObject.isMaterial === true ) {
 
 			versioning = this.Versioning.NeedsUpdate;
 
-		} else if ( targetObject.matrixWorldNeedsUpdate !== undefined ) { // node transform
+		} else if ( targetObject.isObject3D === true ) {
 
 			versioning = this.Versioning.MatrixWorldNeedsUpdate;
 
@@ -34341,6 +34751,42 @@ class AnimationMixer extends EventDispatcher {
 
 }
 
+class RenderTarget3D extends RenderTarget {
+
+	constructor( width = 1, height = 1, depth = 1, options = {} ) {
+
+		super( width, height, options );
+
+		this.isRenderTarget3D = true;
+
+		this.depth = depth;
+
+		this.texture = new Data3DTexture( null, width, height, depth );
+
+		this.texture.isRenderTargetTexture = true;
+
+	}
+
+}
+
+class RenderTargetArray extends RenderTarget {
+
+	constructor( width = 1, height = 1, depth = 1, options = {} ) {
+
+		super( width, height, options );
+
+		this.isRenderTargetArray = true;
+
+		this.depth = depth;
+
+		this.texture = new DataArrayTexture( null, width, height, depth );
+
+		this.texture.isRenderTargetTexture = true;
+
+	}
+
+}
+
 class Uniform {
 
 	constructor( value ) {
@@ -35980,17 +36426,19 @@ class CameraHelper extends LineSegments {
 
 		_camera.projectionMatrixInverse.copy( this.camera.projectionMatrixInverse );
 
-		// center / target
+		// Adjust z values based on coordinate system
+		const nearZ = this.camera.coordinateSystem === WebGLCoordinateSystem ? - 1 : 0;
 
-		setPoint( 'c', pointMap, geometry, _camera, 0, 0, - 1 );
+		// center / target
+		setPoint( 'c', pointMap, geometry, _camera, 0, 0, nearZ );
 		setPoint( 't', pointMap, geometry, _camera, 0, 0, 1 );
 
 		// near
 
-		setPoint( 'n1', pointMap, geometry, _camera, - w, - h, - 1 );
-		setPoint( 'n2', pointMap, geometry, _camera, w, - h, - 1 );
-		setPoint( 'n3', pointMap, geometry, _camera, - w, h, - 1 );
-		setPoint( 'n4', pointMap, geometry, _camera, w, h, - 1 );
+		setPoint( 'n1', pointMap, geometry, _camera, - w, - h, nearZ );
+		setPoint( 'n2', pointMap, geometry, _camera, w, - h, nearZ );
+		setPoint( 'n3', pointMap, geometry, _camera, - w, h, nearZ );
+		setPoint( 'n4', pointMap, geometry, _camera, w, h, nearZ );
 
 		// far
 
@@ -36001,9 +36449,9 @@ class CameraHelper extends LineSegments {
 
 		// up
 
-		setPoint( 'u1', pointMap, geometry, _camera, w * 0.7, h * 1.1, - 1 );
-		setPoint( 'u2', pointMap, geometry, _camera, - w * 0.7, h * 1.1, - 1 );
-		setPoint( 'u3', pointMap, geometry, _camera, 0, h * 2, - 1 );
+		setPoint( 'u1', pointMap, geometry, _camera, w * 0.7, h * 1.1, nearZ );
+		setPoint( 'u2', pointMap, geometry, _camera, - w * 0.7, h * 1.1, nearZ );
+		setPoint( 'u3', pointMap, geometry, _camera, 0, h * 2, nearZ );
 
 		// cross
 
@@ -36012,10 +36460,10 @@ class CameraHelper extends LineSegments {
 		setPoint( 'cf3', pointMap, geometry, _camera, 0, - h, 1 );
 		setPoint( 'cf4', pointMap, geometry, _camera, 0, h, 1 );
 
-		setPoint( 'cn1', pointMap, geometry, _camera, - w, 0, - 1 );
-		setPoint( 'cn2', pointMap, geometry, _camera, w, 0, - 1 );
-		setPoint( 'cn3', pointMap, geometry, _camera, 0, - h, - 1 );
-		setPoint( 'cn4', pointMap, geometry, _camera, 0, h, - 1 );
+		setPoint( 'cn1', pointMap, geometry, _camera, - w, 0, nearZ );
+		setPoint( 'cn2', pointMap, geometry, _camera, w, 0, nearZ );
+		setPoint( 'cn3', pointMap, geometry, _camera, 0, - h, nearZ );
+		setPoint( 'cn4', pointMap, geometry, _camera, 0, h, nearZ );
 
 		geometry.getAttribute( 'position' ).needsUpdate = true;
 
@@ -36804,6 +37252,12 @@ function fill( texture ) {
 /**
  * Given the width, height, format, and type of a texture. Determines how many
  * bytes must be used to represent the texture.
+ *
+ * @param {Number} width
+ * @param {Number} height
+ * @param {Number} format
+ * @param {Number} type
+ * @return {Number} The number of bytes required to represent the texture.
  */
 function getByteLength( width, height, format, type ) {
 
@@ -36942,26 +37396,6 @@ const TextureUtils = {
 	getByteLength
 };
 
-class WebGLMultipleRenderTargets extends WebGLRenderTarget { // @deprecated, r162
-
-	constructor( width = 1, height = 1, count = 1, options = {} ) {
-
-		console.warn( 'THREE.WebGLMultipleRenderTargets has been deprecated and will be removed in r172. Use THREE.WebGLRenderTarget and set the "count" parameter to enable MRT.' );
-
-		super( width, height, { ...options, count } );
-
-		this.isWebGLMultipleRenderTargets = true;
-
-	}
-
-	get texture() {
-
-		return this.textures;
-
-	}
-
-}
-
 if ( typeof __THREE_DEVTOOLS__ !== 'undefined' ) {
 
 	__THREE_DEVTOOLS__.dispatchEvent( new CustomEvent( 'register', { detail: {
@@ -36984,4 +37418,4 @@ if ( typeof window !== 'undefined' ) {
 
 }
 
-export { ACESFilmicToneMapping, AddEquation, AddOperation, AdditiveAnimationBlendMode, AdditiveBlending, AgXToneMapping, AlphaFormat, AlwaysCompare, AlwaysDepth, AlwaysStencilFunc, AmbientLight, AnimationAction, AnimationClip, AnimationLoader, AnimationMixer, AnimationObjectGroup, AnimationUtils, ArcCurve, ArrayCamera, ArrowHelper, AttachedBindMode, Audio, AudioAnalyser, AudioContext, AudioListener, AudioLoader, AxesHelper, BackSide, BasicDepthPacking, BasicShadowMap, BatchedMesh, Bone, BooleanKeyframeTrack, Box2, Box3, Box3Helper, BoxGeometry, BoxHelper, BufferAttribute, BufferGeometry, BufferGeometryLoader, ByteType, Cache, Camera, CameraHelper, CanvasTexture, CapsuleGeometry, CatmullRomCurve3, CineonToneMapping, CircleGeometry, ClampToEdgeWrapping, Clock, Color, ColorKeyframeTrack, ColorManagement, CompressedArrayTexture, CompressedCubeTexture, CompressedTexture, CompressedTextureLoader, ConeGeometry, ConstantAlphaFactor, ConstantColorFactor, Controls, CubeCamera, CubeReflectionMapping, CubeRefractionMapping, CubeTexture, CubeTextureLoader, CubeUVReflectionMapping, CubicBezierCurve, CubicBezierCurve3, CubicInterpolant, CullFaceBack, CullFaceFront, CullFaceFrontBack, CullFaceNone, Curve, CurvePath, CustomBlending, CustomToneMapping, CylinderGeometry, Cylindrical, Data3DTexture, DataArrayTexture, DataTexture, DataTextureLoader, DataUtils, DecrementStencilOp, DecrementWrapStencilOp, DefaultLoadingManager, DepthFormat, DepthStencilFormat, DepthTexture, DetachedBindMode, DirectionalLight, DirectionalLightHelper, DiscreteInterpolant, DodecahedronGeometry, DoubleSide, DstAlphaFactor, DstColorFactor, DynamicCopyUsage, DynamicDrawUsage, DynamicReadUsage, EdgesGeometry, EllipseCurve, EqualCompare, EqualDepth, EqualStencilFunc, EquirectangularReflectionMapping, EquirectangularRefractionMapping, Euler, EventDispatcher, ExtrudeGeometry, FileLoader, Float16BufferAttribute, Float32BufferAttribute, FloatType, Fog, FogExp2, FramebufferTexture, FrontSide, Frustum, GLBufferAttribute, GLSL1, GLSL3, GreaterCompare, GreaterDepth, GreaterEqualCompare, GreaterEqualDepth, GreaterEqualStencilFunc, GreaterStencilFunc, GridHelper, Group, HalfFloatType, HemisphereLight, HemisphereLightHelper, IcosahedronGeometry, ImageBitmapLoader, ImageLoader, ImageUtils, IncrementStencilOp, IncrementWrapStencilOp, InstancedBufferAttribute, InstancedBufferGeometry, InstancedInterleavedBuffer, InstancedMesh, Int16BufferAttribute, Int32BufferAttribute, Int8BufferAttribute, IntType, InterleavedBuffer, InterleavedBufferAttribute, Interpolant, InterpolateDiscrete, InterpolateLinear, InterpolateSmooth, InvertStencilOp, KeepStencilOp, KeyframeTrack, LOD, LatheGeometry, Layers, LessCompare, LessDepth, LessEqualCompare, LessEqualDepth, LessEqualStencilFunc, LessStencilFunc, Light, LightProbe, Line, Line3, LineBasicMaterial, LineCurve, LineCurve3, LineDashedMaterial, LineLoop, LineSegments, LinearFilter, LinearInterpolant, LinearMipMapLinearFilter, LinearMipMapNearestFilter, LinearMipmapLinearFilter, LinearMipmapNearestFilter, LinearSRGBColorSpace, LinearToneMapping, LinearTransfer, Loader, LoaderUtils, LoadingManager, LoopOnce, LoopPingPong, LoopRepeat, LuminanceAlphaFormat, LuminanceFormat, MOUSE, Material, MaterialLoader, MathUtils, Matrix2, Matrix3, Matrix4, MaxEquation, Mesh, MeshBasicMaterial, MeshDepthMaterial, MeshDistanceMaterial, MeshLambertMaterial, MeshMatcapMaterial, MeshNormalMaterial, MeshPhongMaterial, MeshPhysicalMaterial, MeshStandardMaterial, MeshToonMaterial, MinEquation, MirroredRepeatWrapping, MixOperation, MultiplyBlending, MultiplyOperation, NearestFilter, NearestMipMapLinearFilter, NearestMipMapNearestFilter, NearestMipmapLinearFilter, NearestMipmapNearestFilter, NeutralToneMapping, NeverCompare, NeverDepth, NeverStencilFunc, NoBlending, NoColorSpace, NoToneMapping, NormalAnimationBlendMode, NormalBlending, NotEqualCompare, NotEqualDepth, NotEqualStencilFunc, NumberKeyframeTrack, Object3D, ObjectLoader, ObjectSpaceNormalMap, OctahedronGeometry, OneFactor, OneMinusConstantAlphaFactor, OneMinusConstantColorFactor, OneMinusDstAlphaFactor, OneMinusDstColorFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, OrthographicCamera, PCFShadowMap, PCFSoftShadowMap, Path, PerspectiveCamera, Plane, PlaneGeometry, PlaneHelper, PointLight, PointLightHelper, Points, PointsMaterial, PolarGridHelper, PolyhedronGeometry, PositionalAudio, PropertyBinding, PropertyMixer, QuadraticBezierCurve, QuadraticBezierCurve3, Quaternion, QuaternionKeyframeTrack, QuaternionLinearInterpolant, RAD2DEG, RED_GREEN_RGTC2_Format, RED_RGTC1_Format, REVISION, RGBADepthPacking, RGBAFormat, RGBAIntegerFormat, RGBA_ASTC_10x10_Format, RGBA_ASTC_10x5_Format, RGBA_ASTC_10x6_Format, RGBA_ASTC_10x8_Format, RGBA_ASTC_12x10_Format, RGBA_ASTC_12x12_Format, RGBA_ASTC_4x4_Format, RGBA_ASTC_5x4_Format, RGBA_ASTC_5x5_Format, RGBA_ASTC_6x5_Format, RGBA_ASTC_6x6_Format, RGBA_ASTC_8x5_Format, RGBA_ASTC_8x6_Format, RGBA_ASTC_8x8_Format, RGBA_BPTC_Format, RGBA_ETC2_EAC_Format, RGBA_PVRTC_2BPPV1_Format, RGBA_PVRTC_4BPPV1_Format, RGBA_S3TC_DXT1_Format, RGBA_S3TC_DXT3_Format, RGBA_S3TC_DXT5_Format, RGBDepthPacking, RGBFormat, RGBIntegerFormat, RGB_BPTC_SIGNED_Format, RGB_BPTC_UNSIGNED_Format, RGB_ETC1_Format, RGB_ETC2_Format, RGB_PVRTC_2BPPV1_Format, RGB_PVRTC_4BPPV1_Format, RGB_S3TC_DXT1_Format, RGDepthPacking, RGFormat, RGIntegerFormat, RawShaderMaterial, Ray, Raycaster, RectAreaLight, RedFormat, RedIntegerFormat, ReinhardToneMapping, RenderTarget, RepeatWrapping, ReplaceStencilOp, ReverseSubtractEquation, RingGeometry, SIGNED_RED_GREEN_RGTC2_Format, SIGNED_RED_RGTC1_Format, SRGBColorSpace, SRGBTransfer, Scene, ShaderMaterial, ShadowMaterial, Shape, ShapeGeometry, ShapePath, ShapeUtils, ShortType, Skeleton, SkeletonHelper, SkinnedMesh, Source, Sphere, SphereGeometry, Spherical, SphericalHarmonics3, SplineCurve, SpotLight, SpotLightHelper, Sprite, SpriteMaterial, SrcAlphaFactor, SrcAlphaSaturateFactor, SrcColorFactor, StaticCopyUsage, StaticDrawUsage, StaticReadUsage, StereoCamera, StreamCopyUsage, StreamDrawUsage, StreamReadUsage, StringKeyframeTrack, SubtractEquation, SubtractiveBlending, TOUCH, TangentSpaceNormalMap, TetrahedronGeometry, Texture, TextureLoader, TextureUtils, TorusGeometry, TorusKnotGeometry, Triangle, TriangleFanDrawMode, TriangleStripDrawMode, TrianglesDrawMode, TubeGeometry, UVMapping, Uint16BufferAttribute, Uint32BufferAttribute, Uint8BufferAttribute, Uint8ClampedBufferAttribute, Uniform, UniformsGroup, UniformsUtils, UnsignedByteType, UnsignedInt248Type, UnsignedInt5999Type, UnsignedIntType, UnsignedShort4444Type, UnsignedShort5551Type, UnsignedShortType, VSMShadowMap, Vector2, Vector3, Vector4, VectorKeyframeTrack, VideoTexture, WebGL3DRenderTarget, WebGLArrayRenderTarget, WebGLCoordinateSystem, WebGLCubeRenderTarget, WebGLMultipleRenderTargets, WebGLRenderTarget, WebGPUCoordinateSystem, WireframeGeometry, WrapAroundEnding, ZeroCurvatureEnding, ZeroFactor, ZeroSlopeEnding, ZeroStencilOp, arrayNeedsUint32, cloneUniforms, createCanvasElement, createElementNS, getByteLength, getUnlitUniformColorSpace, mergeUniforms, probeAsync, toNormalizedProjectionMatrix, toReversedProjectionMatrix, warnOnce };
+export { ACESFilmicToneMapping, AddEquation, AddOperation, AdditiveAnimationBlendMode, AdditiveBlending, AgXToneMapping, AlphaFormat, AlwaysCompare, AlwaysDepth, AlwaysStencilFunc, AmbientLight, AnimationAction, AnimationClip, AnimationLoader, AnimationMixer, AnimationObjectGroup, AnimationUtils, ArcCurve, ArrayCamera, ArrowHelper, AttachedBindMode, Audio, AudioAnalyser, AudioContext, AudioListener, AudioLoader, AxesHelper, BackSide, BasicDepthPacking, BasicShadowMap, BatchedMesh, Bone, BooleanKeyframeTrack, Box2, Box3, Box3Helper, BoxGeometry, BoxHelper, BufferAttribute, BufferGeometry, BufferGeometryLoader, ByteType, Cache, Camera, CameraHelper, CanvasTexture, CapsuleGeometry, CatmullRomCurve3, CineonToneMapping, CircleGeometry, ClampToEdgeWrapping, Clock, Color, ColorKeyframeTrack, ColorManagement, CompressedArrayTexture, CompressedCubeTexture, CompressedTexture, CompressedTextureLoader, ConeGeometry, ConstantAlphaFactor, ConstantColorFactor, Controls, CubeCamera, CubeReflectionMapping, CubeRefractionMapping, CubeTexture, CubeTextureLoader, CubeUVReflectionMapping, CubicBezierCurve, CubicBezierCurve3, CubicInterpolant, CullFaceBack, CullFaceFront, CullFaceFrontBack, CullFaceNone, Curve, CurvePath, CustomBlending, CustomToneMapping, CylinderGeometry, Cylindrical, Data3DTexture, DataArrayTexture, DataTexture, DataTextureLoader, DataUtils, DecrementStencilOp, DecrementWrapStencilOp, DefaultLoadingManager, DepthFormat, DepthStencilFormat, DepthTexture, DetachedBindMode, DirectionalLight, DirectionalLightHelper, DiscreteInterpolant, DodecahedronGeometry, DoubleSide, DstAlphaFactor, DstColorFactor, DynamicCopyUsage, DynamicDrawUsage, DynamicReadUsage, EdgesGeometry, EllipseCurve, EqualCompare, EqualDepth, EqualStencilFunc, EquirectangularReflectionMapping, EquirectangularRefractionMapping, Euler, EventDispatcher, ExtrudeGeometry, FileLoader, Float16BufferAttribute, Float32BufferAttribute, FloatType, Fog, FogExp2, FramebufferTexture, FrontSide, Frustum, GLBufferAttribute, GLSL1, GLSL3, GreaterCompare, GreaterDepth, GreaterEqualCompare, GreaterEqualDepth, GreaterEqualStencilFunc, GreaterStencilFunc, GridHelper, Group, HalfFloatType, HemisphereLight, HemisphereLightHelper, IcosahedronGeometry, ImageBitmapLoader, ImageLoader, ImageUtils, IncrementStencilOp, IncrementWrapStencilOp, InstancedBufferAttribute, InstancedBufferGeometry, InstancedInterleavedBuffer, InstancedMesh, Int16BufferAttribute, Int32BufferAttribute, Int8BufferAttribute, IntType, InterleavedBuffer, InterleavedBufferAttribute, Interpolant, InterpolateDiscrete, InterpolateLinear, InterpolateSmooth, InvertStencilOp, KeepStencilOp, KeyframeTrack, LOD, LatheGeometry, Layers, LessCompare, LessDepth, LessEqualCompare, LessEqualDepth, LessEqualStencilFunc, LessStencilFunc, Light, LightProbe, Line, Line3, LineBasicMaterial, LineCurve, LineCurve3, LineDashedMaterial, LineLoop, LineSegments, LinearFilter, LinearInterpolant, LinearMipMapLinearFilter, LinearMipMapNearestFilter, LinearMipmapLinearFilter, LinearMipmapNearestFilter, LinearSRGBColorSpace, LinearToneMapping, LinearTransfer, Loader, LoaderUtils, LoadingManager, LoopOnce, LoopPingPong, LoopRepeat, LuminanceAlphaFormat, LuminanceFormat, MOUSE, Material, MaterialLoader, MathUtils, Matrix2, Matrix3, Matrix4, MaxEquation, Mesh, MeshBasicMaterial, MeshDepthMaterial, MeshDistanceMaterial, MeshLambertMaterial, MeshMatcapMaterial, MeshNormalMaterial, MeshPhongMaterial, MeshPhysicalMaterial, MeshStandardMaterial, MeshToonMaterial, MinEquation, MirroredRepeatWrapping, MixOperation, MultiplyBlending, MultiplyOperation, NearestFilter, NearestMipMapLinearFilter, NearestMipMapNearestFilter, NearestMipmapLinearFilter, NearestMipmapNearestFilter, NeutralToneMapping, NeverCompare, NeverDepth, NeverStencilFunc, NoBlending, NoColorSpace, NoToneMapping, NormalAnimationBlendMode, NormalBlending, NotEqualCompare, NotEqualDepth, NotEqualStencilFunc, NumberKeyframeTrack, Object3D, ObjectLoader, ObjectSpaceNormalMap, OctahedronGeometry, OneFactor, OneMinusConstantAlphaFactor, OneMinusConstantColorFactor, OneMinusDstAlphaFactor, OneMinusDstColorFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, OrthographicCamera, PCFShadowMap, PCFSoftShadowMap, Path, PerspectiveCamera, Plane, PlaneGeometry, PlaneHelper, PointLight, PointLightHelper, Points, PointsMaterial, PolarGridHelper, PolyhedronGeometry, PositionalAudio, PropertyBinding, PropertyMixer, QuadraticBezierCurve, QuadraticBezierCurve3, Quaternion, QuaternionKeyframeTrack, QuaternionLinearInterpolant, RAD2DEG, RED_GREEN_RGTC2_Format, RED_RGTC1_Format, REVISION, RGBADepthPacking, RGBAFormat, RGBAIntegerFormat, RGBA_ASTC_10x10_Format, RGBA_ASTC_10x5_Format, RGBA_ASTC_10x6_Format, RGBA_ASTC_10x8_Format, RGBA_ASTC_12x10_Format, RGBA_ASTC_12x12_Format, RGBA_ASTC_4x4_Format, RGBA_ASTC_5x4_Format, RGBA_ASTC_5x5_Format, RGBA_ASTC_6x5_Format, RGBA_ASTC_6x6_Format, RGBA_ASTC_8x5_Format, RGBA_ASTC_8x6_Format, RGBA_ASTC_8x8_Format, RGBA_BPTC_Format, RGBA_ETC2_EAC_Format, RGBA_PVRTC_2BPPV1_Format, RGBA_PVRTC_4BPPV1_Format, RGBA_S3TC_DXT1_Format, RGBA_S3TC_DXT3_Format, RGBA_S3TC_DXT5_Format, RGBDepthPacking, RGBFormat, RGBIntegerFormat, RGB_BPTC_SIGNED_Format, RGB_BPTC_UNSIGNED_Format, RGB_ETC1_Format, RGB_ETC2_Format, RGB_PVRTC_2BPPV1_Format, RGB_PVRTC_4BPPV1_Format, RGB_S3TC_DXT1_Format, RGDepthPacking, RGFormat, RGIntegerFormat, RawShaderMaterial, Ray, Raycaster, RectAreaLight, RedFormat, RedIntegerFormat, ReinhardToneMapping, RenderTarget, RenderTarget3D, RenderTargetArray, RepeatWrapping, ReplaceStencilOp, ReverseSubtractEquation, RingGeometry, SIGNED_RED_GREEN_RGTC2_Format, SIGNED_RED_RGTC1_Format, SRGBColorSpace, SRGBTransfer, Scene, ShaderMaterial, ShadowMaterial, Shape, ShapeGeometry, ShapePath, ShapeUtils, ShortType, Skeleton, SkeletonHelper, SkinnedMesh, Source, Sphere, SphereGeometry, Spherical, SphericalHarmonics3, SplineCurve, SpotLight, SpotLightHelper, Sprite, SpriteMaterial, SrcAlphaFactor, SrcAlphaSaturateFactor, SrcColorFactor, StaticCopyUsage, StaticDrawUsage, StaticReadUsage, StereoCamera, StreamCopyUsage, StreamDrawUsage, StreamReadUsage, StringKeyframeTrack, SubtractEquation, SubtractiveBlending, TOUCH, TangentSpaceNormalMap, TetrahedronGeometry, Texture, TextureLoader, TextureUtils, TimestampQuery, TorusGeometry, TorusKnotGeometry, Triangle, TriangleFanDrawMode, TriangleStripDrawMode, TrianglesDrawMode, TubeGeometry, UVMapping, Uint16BufferAttribute, Uint32BufferAttribute, Uint8BufferAttribute, Uint8ClampedBufferAttribute, Uniform, UniformsGroup, UniformsUtils, UnsignedByteType, UnsignedInt248Type, UnsignedInt5999Type, UnsignedIntType, UnsignedShort4444Type, UnsignedShort5551Type, UnsignedShortType, VSMShadowMap, Vector2, Vector3, Vector4, VectorKeyframeTrack, VideoFrameTexture, VideoTexture, WebGL3DRenderTarget, WebGLArrayRenderTarget, WebGLCoordinateSystem, WebGLCubeRenderTarget, WebGLRenderTarget, WebGPUCoordinateSystem, WebXRController, WireframeGeometry, WrapAroundEnding, ZeroCurvatureEnding, ZeroFactor, ZeroSlopeEnding, ZeroStencilOp, arrayNeedsUint32, cloneUniforms, createCanvasElement, createElementNS, getByteLength, getUnlitUniformColorSpace, mergeUniforms, probeAsync, toNormalizedProjectionMatrix, toReversedProjectionMatrix, warnOnce };

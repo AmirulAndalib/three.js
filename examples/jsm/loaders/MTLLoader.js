@@ -28,7 +28,7 @@ class MTLLoader extends Loader {
 	/**
 	 * Loads and parses a MTL asset from a URL.
 	 *
-	 * @param {String} url - URL to the MTL file.
+	 * @param {string} url - URL to the MTL file.
 	 * @param {Function} [onLoad] - Callback invoked with the loaded object.
 	 * @param {Function} [onProgress] - Callback for download progress.
 	 * @param {Function} [onError] - Callback for download errors.
@@ -84,7 +84,8 @@ class MTLLoader extends Loader {
 	/**
 	 * Parses a MTL file.
 	 *
-	 * @param {String} text - Content of MTL file
+	 * @param {string} text - Content of MTL file
+	 * @param {string} path
 	 * @return {MaterialCreator}
 	 *
 	 * @see setPath setResourcePath

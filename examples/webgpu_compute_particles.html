@@ -8,7 +8,7 @@
 	<body>
 
 		<div id="info">
-			<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> WebGPU - Compute - 1M Particles
+			<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> WebGPU - Compute - 500k Particles
 			<div id="timestamps" style="
 				position: absolute;
 				top: 60px;
@@ -45,7 +45,7 @@
 
 			import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
-			const particleCount = 1000000;
+			const particleCount = 500000;
 
 			const gravity = uniform( - .0098 );
 			const bounce = uniform( .8 );
@@ -227,6 +227,7 @@
 				// events
 
 				renderer.domElement.addEventListener( 'pointermove', onMove );
+
 				//
 
 				controls = new OrbitControls( camera, renderer.domElement );
@@ -266,8 +267,10 @@
 				stats.update();
 
 				await renderer.computeAsync( computeParticles );
+				renderer.resolveTimestampsAsync( THREE.TimestampQuery.COMPUTE );
 
 				await renderer.renderAsync( scene, camera );
+				renderer.resolveTimestampsAsync( THREE.TimestampQuery.RENDER );
 
 				// throttle the logging
 

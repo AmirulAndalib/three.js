@@ -47,10 +47,11 @@ const exceptionList = [
 	'webgl_materials_video',
 	'webgl_video_kinect',
 	'webgl_video_panorama_equirectangular',
+	'webgpu_video_frame',
 
 	'webaudio_visualizer', // audio can't be analyzed without proper audio hook
 
-	// WebXR also isn't determinstic enough?
+	// WebXR also isn't deterministic enough?
 	'webxr_ar_lighting',
 	'webxr_vr_sandbox',
 	'webxr_vr_video',
@@ -111,14 +112,12 @@ const exceptionList = [
 	'physics_jolt_instancing',
 
 	// Awaiting for WebGL backend support
-	'webgpu_clearcoat',
 	'webgpu_compute_audio',
 	'webgpu_compute_texture',
 	'webgpu_compute_texture_pingpong',
-	"webgpu_compute_water",
+	'webgpu_compute_water',
 	'webgpu_materials',
 	'webgpu_sandbox',
-	'webgpu_sprites',
 	'webgpu_video_panorama',
 	'webgpu_postprocessing_bloom_emissive',
 	'webgpu_lights_tiled',
@@ -127,11 +126,11 @@ const exceptionList = [
 	// Awaiting for WebGPU Backend support in Puppeteer
 	'webgpu_storage_buffer',
 	'webgpu_compute_sort_bitonic',
+	'webgpu_struct_drawindirect',
 
 	// WebGPURenderer: Unknown problem
 	'webgpu_backdrop_water',
 	'webgpu_camera_logarithmicdepthbuffer',
-	'webgpu_clipping',
 	'webgpu_lightprobe_cubecamera',
 	'webgpu_loader_materialx',
 	'webgpu_materials_video',
@@ -150,15 +149,16 @@ const exceptionList = [
 	'webgpu_texturegrad',
 	'webgpu_performance_renderbundle',
 	'webgpu_lights_rectarealight',
-	'webgpu_tsl_coffee_smoke',
 	'webgpu_tsl_vfx_flames',
 	'webgpu_tsl_halftone',
 	'webgpu_tsl_vfx_linkedparticles',
-	'webgpu_tsl_vfx_tornado',
 	'webgpu_textures_anisotropy',
+	'webgpu_textures_2d-array_compressed',
+	'webgpu_rendertarget_2d-array_3d',
 	'webgpu_materials_envmaps_bpcem',
-	'webgpu_postprocessing_ssr',
 	'webgpu_postprocessing_sobel',
+	'webgpu_postprocessing_3dlut',
+	'webgpu_postprocessing_afterimage',
 
 	// WebGPU idleTime and parseTime too low
 	'webgpu_compute_particles',
@@ -328,11 +328,11 @@ async function main() {
 
 		console.red( 'List of failed screenshots: ' + list );
 		console.red( `If you are sure that everything is correct, try to run "npm run make-screenshot ${ list }". If this does not help, try increasing idleTime and parseTime variables in /test/e2e/puppeteer.js file. If this also does not help, add remaining screenshots to the exception list.` );
-		console.red( `${ failedScreenshots.length } from ${ files.length } screenshots have not generated succesfully.` );
+		console.red( `${ failedScreenshots.length } from ${ files.length } screenshots have not generated successfully.` );
 
 	} else if ( isMakeScreenshot && ! failedScreenshots.length ) {
 
-		console.green( `${ files.length } screenshots succesfully generated.` );
+		console.green( `${ files.length } screenshots successfully generated.` );
 
 	} else if ( failedScreenshots.length ) {
 
